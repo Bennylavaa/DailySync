@@ -1,0 +1,15 @@
+## Interface: 20505
+## Title: DailySync
+## Notes: Shares and tracks today's daily quests with other players using the same addon.
+## Version: 1.0
+## Category: Quests
+## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
+## SavedVariables: DailySync_Data
+## Author: Beckylava (Dreamscythe)
+
+Libs\LibStub\LibStub.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+
+DailySync.lua
+gui.lua
