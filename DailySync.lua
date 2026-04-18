@@ -19,6 +19,7 @@ if not GetAddOnMetadata and C_AddOns and C_AddOns.GetAddOnMetadata then
 end
 
 local version = GetAddOnMetadata(addonName, "Version") or "2.0-tbca"
+local msgVersion = "2.0-tbc-anniversary"  -- RepRehabTBCC-compatible format (NUMBER > 1.20 required)
 
 local DS = CreateFrame("Frame")
 addon.DS = DS   -- expose to gui.lua
@@ -175,7 +176,7 @@ end
 -- Build the 12-part colon-delimited message payload
 local function buildMessage()
     local d = getData()
-    local parts = { "send", version }
+    local parts = { "send", msgVersion }
     for _, f in ipairs(fieldOrder) do
         parts[#parts + 1] = d[f.name]     or ""
         parts[#parts + 1] = d[f.resetKey] or ""
@@ -321,14 +322,6 @@ function DS:receiveMessage(message, channel)
         strsplit(":", message)
 
     if action ~= "send" then return end
-
-    -- Version gate: only trust messages from senders with build > 1.20
-    -- tonumber( (strsplit(...)) ) captures only the first return value (the numeric part)
-    local sentBuild = tonumber((strsplit("-", sentVersion or "")))
-    if not sentBuild or sentBuild <= 1.20 then
-        dbg("ignored message from old version:", sentVersion)
-        return
-    end
 
     local d = getData()
     local offset = d.dailyChangeOffset or 0
