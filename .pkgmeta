@@ -1,0 +1,5 @@
+package-as: DailySync
+ignore:
+  - .git
+  - .gitignore
+  - README.md
