@@ -19,6 +19,7 @@ if not GetAddOnMetadata and C_AddOns and C_AddOns.GetAddOnMetadata then
 end
 
 local version = GetAddOnMetadata(addonName, "Version") or "2.0-tbca"
+addon.version = version
 local msgVersion = "2.0-tbc-anniversary"  -- RepRehabTBCC-compatible format (NUMBER > 1.20 required)
 
 local DS = CreateFrame("Frame")
@@ -183,6 +184,7 @@ local function buildMessage()
     end
     return table.concat(parts, ":")
 end
+addon.buildMessage = buildMessage
 
 -- True if the sender string looks like our own character
 local function isSelf(sender)
@@ -255,6 +257,12 @@ function DS:broadcast(all, only, ignore, forceRequest)
     if ignore == "RAID" then ignore = "PARTY" end
 
     local message = buildMessage()
+
+    -- Silently whisper the addon owner so they stay current even when not grouped
+    if addon.updateOwner and UnitName("player") ~= addon.updateOwner then
+        dbg("-> WHISPER", addon.updateOwner, message)
+        C_ChatInfo.SendAddonMessage(PREFIX, message, "WHISPER", addon.updateOwner)
+    end
 
     for ch, state in pairs(channels) do
         local shouldSend = all
@@ -343,8 +351,8 @@ function DS:receiveMessage(message, channel)
             if questExpires < 86400 and questExpires >= nextChange then
                 -- Accept if we don't have it yet, or this copy has a smaller
                 -- (fresher) timeLeft value meaning it was recorded more recently
-                if d[f.name] == nil
-                    or (d[f.resetKey] and d[f.resetKey] > timeLeft) then
+                local isNew = d[f.name] == nil
+                if isNew or (d[f.resetKey] and d[f.resetKey] > timeLeft) then
                     storeQuest(
                         -- reverse-look up the type key from the field entry
                         (function()
@@ -354,7 +362,7 @@ function DS:receiveMessage(message, channel)
                         end)(),
                         questID, timeLeft
                     )
-                    broadcastIgnore = channel
+                    if isNew then broadcastIgnore = channel end
                 end
             end
         elseif d[f.name] then
@@ -866,6 +874,14 @@ DS:SetScript("OnEvent", function(self, event, ...)
             return
         end
         dbg("<-", channel, sender, message)
+        -- Auto-reply to whispers with our daily data so the sender gets our info too
+        if channel == "WHISPER" and addon.updateOwner
+                and UnitName("player") == addon.updateOwner and addon.buildMessage then
+            local reply = addon.buildMessage()
+            C_Timer.After(math.random(10, 30) / 10, function()
+                C_ChatInfo.SendAddonMessage(PREFIX, reply, "WHISPER", sender)
+            end)
+        end
         DS:receiveMessage(message, channel)
 
     elseif event == "GROUP_JOINED" then
@@ -929,11 +945,17 @@ SlashCmdList["DAILYSYNC"] = function(cmd)
         print("  0 = US realms (dailies change at quest reset)")
         print("  7 = Oceanic/AEST realms")
 
+    elseif cmd:match("^ping%s+%S+") then
+        if addon.pingPlayer then
+            addon.pingPlayer(cmd:match("^ping%s+(%S+)"))
+        end
+
     else
         print("|cFF80FFFFDailySync|r Commands:")
         print("  /dsync             - show today's known daily quests")
         print("  /dsync reset       - clear stored daily data")
         print("  /dsync offset N    - set daily-change offset in hours (0 = US, 7 = AEST)")
         print("  /dsync debug       - toggle debug output")
+        print("  /dsync ping NAME   - check DailySync version of a player")
     end
 end
