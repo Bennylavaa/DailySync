@@ -802,6 +802,36 @@ end
 -- Event handling
 -- ─────────────────────────────────────────────────────────────────────────────
 
+function DS:joinDailySyncChannel()
+    local num = GetChannelName("DailySync")
+    -- If already joined and not in slot 1, just hide it and we're done
+    if num > 1 then
+        for i = 1, 10 do
+            if _G["ChatFrame" .. i] then
+                ChatFrame_RemoveChannel(_G["ChatFrame" .. i], "DailySync")
+            end
+        end
+        return
+    end
+    -- WoW's chat cache may have auto-rejoined DailySync in slot 1 before General/Trade
+    -- loaded. Leave it now and rejoin after a delay so it lands in a later slot.
+    if num == 1 then
+        LeaveChannelByName("DailySync")
+    end
+    C_Timer.After(30, function()
+        if GetChannelName("DailySync") == 0 then
+            JoinChannelByName("DailySync")
+            C_Timer.After(1, function()
+                for i = 1, 10 do
+                    if _G["ChatFrame" .. i] then
+                        ChatFrame_RemoveChannel(_G["ChatFrame" .. i], "DailySync")
+                    end
+                end
+            end)
+        end
+    end)
+end
+
 DS:RegisterEvent("ADDON_LOADED")
 DS:RegisterEvent("QUEST_ACCEPTED")
 DS:RegisterEvent("QUEST_DETAIL")
@@ -834,15 +864,9 @@ DS:SetScript("OnEvent", function(self, event, ...)
 
         -- After login settles, join the shared channel then broadcast
         C_Timer.After(8, function()
-            JoinChannelByName("DailySync")
-            C_Timer.After(2, function()
-                for i = 1, 10 do
-                    local frame = _G["ChatFrame" .. i]
-                    if frame then ChatFrame_RemoveChannel(frame, "DailySync") end
-                end
-                checkReset()
-                DS:broadcast(true, nil, nil, true)
-            end)
+            DS:joinDailySyncChannel()
+            checkReset()
+            DS:broadcast(true, nil, nil, true)
         end)
 
         if addon.initUI then addon.initUI() end
@@ -904,7 +928,6 @@ DS:SetScript("OnEvent", function(self, event, ...)
         DS:broadcast(false, "PARTY", nil, true)
 
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Yell shortly after entering the world (not in an instance)
         C_Timer.After(20, function()
             if not IsInInstance() and time() - DS.lastYell > YELL_COOLDOWN then
                 DS.lastYell = time()
@@ -913,7 +936,7 @@ DS:SetScript("OnEvent", function(self, event, ...)
         end)
 
     elseif event == "ZONE_CHANGED_NEW_AREA" then
-        -- Yell when moving to a new outdoor area (primary way dailies spread to strangers)
+        DS:joinDailySyncChannel()
         if not IsInInstance() and time() - DS.lastYell > YELL_COOLDOWN then
             DS.lastYell = time()
             DS:broadcast(false, "YELL", nil, true)
