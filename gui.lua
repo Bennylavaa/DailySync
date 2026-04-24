@@ -159,13 +159,24 @@ popupDailyCount:SetJustifyH("LEFT")
 
 -- Share button (non-scrolling)
 local popupShare = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
-popupShare:SetSize(60, 18)
-popupShare:SetText("Share")
+popupShare:SetSize(80, 18)
+popupShare:SetText("Sync")
 popupShare:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -8, 7)
+local SYNC_COOLDOWN = 10
+local lastSyncTime  = 0
 popupShare:SetScript("OnClick", function(self)
+    local now = time()
+    local remaining = SYNC_COOLDOWN - (now - lastSyncTime)
+    if remaining > 0 then
+        self:SetText(remaining .. "s")
+        C_Timer.After(1, function() if self and self.SetText then self:SetText("Sync") end end)
+        return
+    end
+    lastSyncTime = now
     DS:broadcast(true, nil, nil, true)
-    self:SetText("Sent!")
-    C_Timer.After(3, function() if self and self.SetText then self:SetText("Share") end end)
+    addon.sendToCustomChannel()
+    self:SetText("Syncing...")
+    C_Timer.After(10, function() if self and self.SetText then self:SetText("Sync") end end)
 end)
 
 -- ─────────────────────────────────────────────────────────────────────────────

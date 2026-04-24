@@ -114,7 +114,6 @@ local channels = {
     GUILD  = { lastMsg = "", lastMsgTime = 0 },
     PARTY  = { lastMsg = "", lastMsgTime = 0 },
     YELL   = { lastMsg = "", lastMsgTime = 0 },
-    CUSTOM = { lastMsg = "", lastMsgTime = 0 },
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -187,6 +186,13 @@ local function buildMessage()
 end
 addon.buildMessage = buildMessage
 
+function addon.sendToCustomChannel()
+    local num = GetChannelName("DailySync")
+    if num and num > 0 then
+        ChatThrottleLib:SendChatMessage("BULK", "DailySync", buildMessage(), "CHANNEL", nil, num)
+    end
+end
+
 -- True if the sender string looks like our own character
 local function isSelf(sender)
     if not sender or sender == "" then return false end
@@ -210,11 +216,6 @@ local function resolveChannel(ch)
     end
     if ch == "YELL" then
         return "YELL"
-    end
-    if ch == "CUSTOM" then
-        local num = GetChannelName("DailySync")
-        if num and num > 0 then return "CHANNEL", num end
-        return nil
     end
     return nil
 end
@@ -317,9 +318,8 @@ function DS:receiveMessage(message, channel)
     local nextChange = getNextChange()
     if nextChange < 10 or nextChange > 86390 then return end
 
-    -- Normalise RAID→PARTY and CHANNEL→CUSTOM for our channel-state table
-    if channel == "RAID"    then channel = "PARTY"  end
-    if channel == "CHANNEL" then channel = "CUSTOM" end
+    -- Normalise RAID→PARTY for our channel-state table
+    if channel == "RAID" then channel = "PARTY" end
 
     -- Cancel any pending re-broadcast for this channel (the sender beat us to it)
     local state = channels[channel]
@@ -806,6 +806,7 @@ DS:RegisterEvent("ADDON_LOADED")
 DS:RegisterEvent("QUEST_ACCEPTED")
 DS:RegisterEvent("QUEST_DETAIL")
 DS:RegisterEvent("CHAT_MSG_ADDON")
+DS:RegisterEvent("CHAT_MSG_CHANNEL")
 DS:RegisterEvent("GROUP_JOINED")
 DS:RegisterEvent("PLAYER_ENTERING_WORLD")
 DS:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -831,11 +832,17 @@ DS:SetScript("OnEvent", function(self, event, ...)
             print("|cFF80FFFFDailySync|r Warning: could not register addon message prefix.")
         end
 
-        -- After login settles, join the shared addon channel then broadcast
+        -- After login settles, join the shared channel then broadcast
         C_Timer.After(8, function()
             JoinChannelByName("DailySync")
-            checkReset()
-            DS:broadcast(true, nil, nil, true)
+            C_Timer.After(2, function()
+                for i = 1, 10 do
+                    local frame = _G["ChatFrame" .. i]
+                    if frame then ChatFrame_RemoveChannel(frame, "DailySync") end
+                end
+                checkReset()
+                DS:broadcast(true, nil, nil, true)
+            end)
         end)
 
         if addon.initUI then addon.initUI() end
@@ -851,20 +858,19 @@ DS:SetScript("OnEvent", function(self, event, ...)
             local qtype = getQuestType(questID)
             if qtype then
                 local resetTime = GetQuestResetTime()
+                dbg("detected QUEST_ACCEPTED", qtype, questID)
                 storeQuest(qtype, questID, resetTime)
-                -- Broadcast the new info to everyone; force=true because we
-                -- have new data regardless of whether other fields are missing
                 DS:broadcast(true, nil, nil, true)
             end
         end
 
     elseif event == "QUEST_DETAIL" then
-        -- Fires when the quest-accept dialog opens (catches quests before accept)
         local questID = GetQuestID()
         if questID and dailyInfo[questID] then
             local qtype = getQuestType(questID)
             if qtype then
                 local resetTime = GetQuestResetTime()
+                dbg("detected QUEST_DETAIL", qtype, questID)
                 storeQuest(qtype, questID, resetTime)
                 DS:broadcast(true, nil, nil, true)
             end
@@ -879,6 +885,19 @@ DS:SetScript("OnEvent", function(self, event, ...)
         end
         dbg("<-", channel, sender, message)
         DS:receiveMessage(message, channel)
+
+    elseif event == "CHAT_MSG_CHANNEL" then
+        local message, sender, _, _, _, _, _, _, channelBaseName = ...
+        if channelBaseName ~= "DailySync" then return end
+        if isSelf(sender) then return end
+        dbg("<-", "CUSTOM", sender, message)
+        DS:receiveMessage(message, "CUSTOM")
+        -- Whisper our data back so sender can fill any gaps they're missing
+        if DS.prefixRegistered then
+            local reply = addon.buildMessage()
+            dbg("-> WHISPER", sender, reply)
+            C_ChatInfo.SendAddonMessage(PREFIX, reply, "WHISPER", sender)
+        end
 
     elseif event == "GROUP_JOINED" then
         -- Just joined a group; share with / request from party members
