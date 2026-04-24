@@ -111,9 +111,10 @@ addon.fieldOrder      = fieldOrder
 
 -- Per-channel dedup state
 local channels = {
-    GUILD = { lastMsg = "", lastMsgTime = 0 },
-    PARTY = { lastMsg = "", lastMsgTime = 0 },
-    YELL  = { lastMsg = "", lastMsgTime = 0 },
+    GUILD  = { lastMsg = "", lastMsgTime = 0 },
+    PARTY  = { lastMsg = "", lastMsgTime = 0 },
+    YELL   = { lastMsg = "", lastMsgTime = 0 },
+    CUSTOM = { lastMsg = "", lastMsgTime = 0 },
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -197,7 +198,7 @@ local function isSelf(sender)
     return namePart == DS.playerName
 end
 
--- Returns the actual WoW channel string to send on, or nil if not available
+-- Returns the actual WoW distribution type (and optional channel number) to send on, or nil if not available
 local function resolveChannel(ch)
     if UnitInBattleground("player") then return nil end
     if ch == "GUILD" then
@@ -209,6 +210,11 @@ local function resolveChannel(ch)
     end
     if ch == "YELL" then
         return "YELL"
+    end
+    if ch == "CUSTOM" then
+        local num = GetChannelName("DailySync")
+        if num and num > 0 then return "CHANNEL", num end
+        return nil
     end
     return nil
 end
@@ -258,12 +264,6 @@ function DS:broadcast(all, only, ignore, forceRequest)
 
     local message = buildMessage()
 
-    -- Silently whisper the addon owner so they stay current even when not grouped
-    if addon.updateOwner and UnitName("player") ~= addon.updateOwner then
-        dbg("-> WHISPER", addon.updateOwner, message)
-        C_ChatInfo.SendAddonMessage(PREFIX, message, "WHISPER", addon.updateOwner)
-    end
-
     for ch, state in pairs(channels) do
         local shouldSend = all
             or (only   ~= nil and only   == ch)
@@ -272,15 +272,18 @@ function DS:broadcast(all, only, ignore, forceRequest)
         if shouldSend then
             -- Deduplicate: skip if we sent the identical data very recently
             if message ~= state.lastMsg or time() > state.lastMsgTime + 10 then
-                local wowCh = resolveChannel(ch)
+                local wowCh, wowChNum = resolveChannel(ch)
                 if wowCh then
                     local delay = (math.random(500) + 100) / 100
                     state.lastMsg     = message
                     state.lastMsgTime = time() + delay
                     if state.waitTimer then state.waitTimer:Cancel() end
                     state.waitTimer = C_Timer.NewTimer(delay, function()
+                        local dist, distNum = resolveChannel(ch)
+                        dist    = dist    or wowCh
+                        distNum = distNum or wowChNum
                         dbg("->", ch, message)
-                        C_ChatInfo.SendAddonMessage(PREFIX, message, resolveChannel(ch) or wowCh)
+                        C_ChatInfo.SendAddonMessage(PREFIX, message, dist, distNum)
                     end)
                 end
             end
@@ -314,8 +317,9 @@ function DS:receiveMessage(message, channel)
     local nextChange = getNextChange()
     if nextChange < 10 or nextChange > 86390 then return end
 
-    -- Normalise RAID→PARTY for our channel-state table
-    if channel == "RAID" then channel = "PARTY" end
+    -- Normalise RAID→PARTY and CHANNEL→CUSTOM for our channel-state table
+    if channel == "RAID"    then channel = "PARTY"  end
+    if channel == "CHANNEL" then channel = "CUSTOM" end
 
     -- Cancel any pending re-broadcast for this channel (the sender beat us to it)
     local state = channels[channel]
@@ -827,9 +831,9 @@ DS:SetScript("OnEvent", function(self, event, ...)
             print("|cFF80FFFFDailySync|r Warning: could not register addon message prefix.")
         end
 
-        -- After login settles, broadcast to all available channels to request
-        -- and share data with anyone who is already online
+        -- After login settles, join the shared addon channel then broadcast
         C_Timer.After(8, function()
+            JoinChannelByName("DailySync")
             checkReset()
             DS:broadcast(true, nil, nil, true)
         end)
@@ -874,14 +878,6 @@ DS:SetScript("OnEvent", function(self, event, ...)
             return
         end
         dbg("<-", channel, sender, message)
-        -- Auto-reply to whispers with our daily data so the sender gets our info too
-        if channel == "WHISPER" and addon.updateOwner
-                and UnitName("player") == addon.updateOwner and addon.buildMessage then
-            local reply = addon.buildMessage()
-            C_Timer.After(math.random(10, 30) / 10, function()
-                C_ChatInfo.SendAddonMessage(PREFIX, reply, "WHISPER", sender)
-            end)
-        end
         DS:receiveMessage(message, channel)
 
     elseif event == "GROUP_JOINED" then

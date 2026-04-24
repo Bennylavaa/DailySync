@@ -244,8 +244,30 @@ content:SetScript("OnHyperlinkEnter", function(self, link)
     GameTooltip:Show()
 end)
 content:SetScript("OnHyperlinkLeave", function() GameTooltip:Hide() end)
-content:SetScript("OnHyperlinkClick", function(self, link, text)
-    if IsShiftKeyDown() then ChatEdit_InsertLink(text) end
+content:SetScript("OnHyperlinkClick", function(self, link, text, button)
+    if IsShiftKeyDown() then
+        ChatEdit_InsertLink(text)
+        return
+    end
+    local questID = tonumber(link:match("^quest:(%d+)"))
+    if questID then
+        local numEntries = GetNumQuestLogEntries()
+        local i = 1
+        while i <= numEntries do
+            local _, _, _, isHeader, isCollapsed, _, _, qID = GetQuestLogTitle(i)
+            if isHeader and isCollapsed then
+                ExpandQuestHeader(i)
+                numEntries = GetNumQuestLogEntries()
+            elseif qID == questID then
+                ShowUIPanel(QuestLogFrame)
+                QuestLog_SetSelection(i)
+                QuestLog_Update()
+                return
+            end
+            i = i + 1
+        end
+    end
+    SetItemRef(link, text, button)
 end)
 
 -- ─────────────────────────────────────────────────────────────────────────────
