@@ -42,7 +42,7 @@ local TOWER_QUESTS = {
 }
 
 local OGRILA_QUESTS   = { 11080, 11051, 11023, 11066 }   -- Relic, Banish, Bomb, Wrangle
-local SKYGUARD_QUESTS = { 11008, 11085, 11023, 11066 }  -- Fires, Escape, Bomb, Wrangle
+local SKYGUARD_QUESTS = { 11085, 11008, 11023, 11066 }  -- Escape, Fires, Bomb, Wrangle
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Layout constants
@@ -157,6 +157,11 @@ local popupDailyCount = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalSm
 popupDailyCount:SetPoint("BOTTOMLEFT", popup, "BOTTOMLEFT", 10, 11)
 popupDailyCount:SetJustifyH("LEFT")
 
+-- Daily gold tracker (right of the daily-quest counter)
+local popupDailyGold = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+popupDailyGold:SetPoint("LEFT", popupDailyCount, "RIGHT", 12, 0)
+popupDailyGold:SetJustifyH("LEFT")
+
 -- Share button (non-scrolling)
 local popupShare = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
 popupShare:SetSize(80, 18)
@@ -207,6 +212,48 @@ content:SetHyperlinksEnabled(true)
 content:SetScript("OnMouseDown", function(self, btn)
     if btn == "RightButton" then popup:Hide() end
 end)
+-- Format a copper value as e.g. "11g 99s" with the standard WoW colours.
+local function formatGold(copper)
+    local g = math.floor(copper / 10000)
+    local s = math.floor((copper % 10000) / 100)
+    local c = copper % 100
+    local parts = {}
+    if g > 0 then parts[#parts + 1] = "|cFFFFD700" .. g .. "g|r" end
+    if s > 0 then parts[#parts + 1] = "|cFFC7C7CF" .. s .. "s|r" end
+    if c > 0 or #parts == 0 then parts[#parts + 1] = "|cFFEDA55F" .. c .. "c|r" end
+    return table.concat(parts, " ")
+end
+
+-- Substitute WoW quest text placeholders with the player's values:
+--   <name>, <class>, <race>             — character info
+--   <him/her>, <he/she>, <lad/lass>, …  — any <male/female> pair, picked by player sex
+local function fillPlaceholders(text)
+    if not text then return text end
+    text = text:gsub("<name>",  UnitName("player")  or "")
+    text = text:gsub("<class>", UnitClass("player") or "")
+    text = text:gsub("<race>",  UnitRace("player")  or "")
+    -- UnitSex returns 2 = male, 3 = female (1 = unknown, fall through to male)
+    local female = (UnitSex("player") == 3)
+    text = text:gsub("<([^/<>]+)/([^/<>]+)>", function(m, f) return female and f or m end)
+    return text
+end
+
+-- Format an item entry as "<icon> [Name] x<count>" using its quality colour.
+-- Accepts either a plain itemID number, or a {itemID, count} table.
+-- Falls back to a plain "[Item #ID]" if the item info isn't cached yet
+-- (the next render will pick up the cached value).
+local function formatItem(entry)
+    local itemID, count
+    if type(entry) == "table" then itemID, count = entry[1], entry[2]
+    else                            itemID, count = entry, 1 end
+
+    local _, link, _, _, _, _, _, _, _, texture = GetItemInfo(itemID)
+    local prefix  = texture and ("|T" .. texture .. ":14:14:0:0|t ") or ""
+    local display = link or ("|cFFAAAAAA[Item #" .. itemID .. "]|r")
+    local suffix  = (count and count > 1) and (" x" .. count) or ""
+    return prefix .. display .. suffix
+end
+
 -- Builds a tooltip from our embedded quest data.
 -- Returns true if the tooltip was populated, false if the quest isn't in our table.
 local function buildRichTooltip(questID)
@@ -215,19 +262,61 @@ local function buildRichTooltip(questID)
     local fNames = addon.factionNames or {}
 
     local playerFaction = UnitFactionGroup("player")
-    GameTooltip:AddDoubleLine(C_LINK .. data.title .. " (Daily)" .. C_RESET, "Level " .. data.level, 1, 1, 1, 1, 0.82, 0)
-    for _, r in ipairs(data.rep) do
-        local side = addon.factionSide and addon.factionSide[r[1]]
-        if not side or side == playerFaction then
-            local fname = fNames[r[1]] or ("Faction " .. r[1])
-            GameTooltip:AddDoubleLine(fname, "+" .. r[2] .. " Reputation", 1, 1, 1, 0.1, 1, 0.1)
-        end
+    local titleText = C_LINK .. data.title .. " (Daily)" .. C_RESET
+    if isDone(questID) then titleText = titleText .. "  " .. TICK end
+    GameTooltip:AddDoubleLine(titleText, "Level " .. data.level, 1, 1, 1, 1, 0.82, 0)
+    GameTooltip:AddLine(fillPlaceholders(data.desc), 1, 1, 1, true)
+
+    if data.objective then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(fillPlaceholders(data.objective), 1, 0.6, 0.6, true)
     end
+
+    if data.longDesc then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(C_HEADER .. "Description" .. C_RESET, 1, 0.82, 0)
+        GameTooltip:AddLine(fillPlaceholders(data.longDesc), 1, 1, 1, true)
+    end
+
     if data.prevQuest then
+        GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Requires Quest " .. C_LINK .. "[" .. data.prevQuest .. "]" .. C_RESET, 1, 1, 1)
     end
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(data.desc, 1, 1, 1, true)
+
+    local hasRep = false
+    if data.rep then
+        for _, r in ipairs(data.rep) do
+            local side = addon.factionSide and addon.factionSide[r[1]]
+            if not side or side == playerFaction then hasRep = true; break end
+        end
+    end
+    if data.gold or data.rewardNote or data.rewardItems then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(C_HEADER .. "Rewards" .. C_RESET, 1, 0.82, 0)
+        if data.gold then
+            GameTooltip:AddLine(formatGold(data.gold), 1, 1, 1)
+        end
+        if data.rewardNote then
+            GameTooltip:AddLine(data.rewardNote, 1, 1, 1, true)
+        end
+        if data.rewardItems then
+            for _, itemID in ipairs(data.rewardItems) do
+                GameTooltip:AddLine(formatItem(itemID), 1, 1, 1)
+            end
+        end
+    end
+    if hasRep then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(C_HEADER .. "Reputation" .. C_RESET, 1, 0.82, 0)
+        for _, r in ipairs(data.rep) do
+            local side = addon.factionSide and addon.factionSide[r[1]]
+            if not side or side == playerFaction then
+                local fname = fNames[r[1]] or ("Faction " .. r[1])
+                GameTooltip:AddDoubleLine(fname, "+" .. r[2], 1, 1, 1, 0.1, 1, 0.1)
+            end
+        end
+    end
+
     return true
 end
 
@@ -352,6 +441,49 @@ content:SetHeight(math.abs(curY) + START_PAD)
 -- Refresh
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- Per-category gold for the rotating dailies, used as a fallback for the max
+-- when today's specific quest hasn't been synced yet. Per-quest values in
+-- fixedQuestData take precedence whenever the day's quest IS known.
+local CATEGORY_DAILY_GOLD = {
+    normal  = 163900,
+    heroic  = 246000,
+    cooking = 75900,
+    fishing = 0,
+    pvp     = 119900,
+}
+
+-- Sum gold from the 13 daily slots: 5 rotating + 2 tower (faction-paired) +
+-- 6 unique Skyguard/Ogri'la (Bomb/Wrangle appear in both lists but are the
+-- same quest, so they only count once).
+local function computeDailyGold(d)
+    local current, max = 0, 0
+    local function questGold(qid)
+        local data = addon.fixedQuestData and addon.fixedQuestData[qid]
+        return (data and data.gold) or 0
+    end
+    local function tally(qid, fallback)
+        local g = qid and questGold(qid) or 0
+        if g == 0 and fallback then g = fallback end
+        max = max + g
+        if qid and isDone(qid) then current = current + g end
+    end
+
+    for _, sec in ipairs(SECTIONS) do
+        tally(d[addon.questTypeFields[sec.qtype].name], CATEGORY_DAILY_GOLD[sec.qtype])
+    end
+    local faction = UnitFactionGroup("player")
+    for _, tq in ipairs(TOWER_QUESTS) do
+        tally((faction == "Alliance") and tq.alliance or tq.horde)
+    end
+    local seen = {}
+    for _, list in ipairs({ OGRILA_QUESTS, SKYGUARD_QUESTS }) do
+        for _, qid in ipairs(list) do
+            if not seen[qid] then seen[qid] = true; tally(qid) end
+        end
+    end
+    return current, max
+end
+
 local function refreshPopup()
     local d = addon.getData()
     if not d then return end
@@ -359,6 +491,8 @@ local function refreshPopup()
     popupResetLabel:SetText(clr("FFD100") .. "Reset: " .. formatReset() .. C_RESET)
     local done = (GetDailyQuestsCompleted and GetDailyQuestsCompleted()) or 0
     popupDailyCount:SetText(clr("FFD100") .. "Daily Quests: " .. done .. " / 25" .. C_RESET)
+    local cur, max = computeDailyGold(d)
+    popupDailyGold:SetText(clr("FFD100") .. "Daily Gold:" .. C_RESET .. " " .. formatGold(cur) .. " / " .. formatGold(max))
 
     -- Rotating sections
     for i, sec in ipairs(SECTIONS) do
