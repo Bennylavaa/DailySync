@@ -1,7 +1,7 @@
 ## Interface: 20505
 ## Title: DailySync
 ## Notes: Shares and tracks today's daily quests with other players using the same addon.
-## Version: 1.0.7
+## Version: 1.0.8
 ## Category: Quests
 ## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
 ## SavedVariables: DailySync_Data
@@ -15,3 +15,4 @@ Libs\ChatThrottleLib.lua
 DailySync.lua
 updater.lua
 gui.lua
+celebrate.lua

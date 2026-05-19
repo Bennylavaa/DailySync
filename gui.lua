@@ -132,6 +132,14 @@ if popup.SetBackdrop then
 end
 popup:Hide()
 
+popup:SetResizable(true)
+if popup.SetResizeBounds then
+    popup:SetResizeBounds(350, 200, 900, 800)
+else
+    if popup.SetMinResize then popup:SetMinResize(350, 200) end
+    if popup.SetMaxResize then popup:SetMaxResize(900, 800) end
+end
+
 popup:SetScript("OnMouseDown", function(self, btn)
     if btn == "RightButton" then self:Hide() end
 end)
@@ -166,7 +174,22 @@ popupDailyGold:SetJustifyH("LEFT")
 local popupShare = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
 popupShare:SetSize(80, 18)
 popupShare:SetText("Sync")
-popupShare:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -8, 7)
+popupShare:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -26, 7)
+
+local popupResize = CreateFrame("Button", nil, popup)
+popupResize:SetSize(16, 16)
+popupResize:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -4, 4)
+popupResize:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+popupResize:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+popupResize:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+popupResize:SetScript("OnMouseDown", function(self, btn)
+    if btn == "LeftButton" then popup:StartSizing("BOTTOMRIGHT") end
+end)
+popupResize:SetScript("OnMouseUp", function()
+    popup:StopMovingOrSizing()
+    DailySync_Data.ui.popupW = math.floor(popup:GetWidth())
+    DailySync_Data.ui.popupH = math.floor(popup:GetHeight())
+end)
 local SYNC_COOLDOWN = 10
 local lastSyncTime  = 0
 popupShare:SetScript("OnClick", function(self)
@@ -412,16 +435,21 @@ for i, sec in ipairs(SECTIONS) do
     uiRefs.rotating[i] = refs
 end
 
+local towersRowY, ogrilaHeaderY
+local twoColRowYs = {}
+
 -- ── PvP Towers (two links side-by-side) ──────────────────────────────────────
 uiRefs.towers.header = makeFS(12, "OUTLINE", 0, curY)
+towersRowY = curY - ROW_H
 local tColW = HALF_W - INDENT - 3
 for j, _ in ipairs(TOWER_QUESTS) do
     local tx = (j == 1) and INDENT or (HALF_W + INDENT)
-    uiRefs.towers[j] = makeFS(11, "", tx, curY - ROW_H, tColW)
+    uiRefs.towers[j] = makeFS(11, "", tx, towersRowY, tColW)
 end
 curY = curY - ROW_H * 2 - SEC_GAP
 
 -- ── Ogri'la / Skyguard (two-column) ──────────────────────────────────────────
+ogrilaHeaderY = curY
 local colQW = HALF_W - INDENT - 3
 uiRefs.ogrila.header   = makeFS(12, "OUTLINE", 0,      curY, HALF_W - 3)
 uiRefs.skyguard.header = makeFS(12, "OUTLINE", HALF_W, curY, HALF_W - 3)
@@ -429,6 +457,7 @@ uiRefs.skyguard.header = makeFS(12, "OUTLINE", HALF_W, curY, HALF_W - 3)
 local twoColTopY = curY - ROW_H - SUB_GAP
 for j = 1, math.max(#OGRILA_QUESTS, #SKYGUARD_QUESTS) do
     local rowY = twoColTopY - (j - 1) * ROW_H
+    twoColRowYs[j] = rowY
     if j <= #OGRILA_QUESTS   then uiRefs.ogrila[j]   = makeFS(11, "", INDENT,          rowY, colQW) end
     if j <= #SKYGUARD_QUESTS then uiRefs.skyguard[j]  = makeFS(11, "", HALF_W + INDENT, rowY, colQW) end
 end
@@ -436,6 +465,47 @@ curY = twoColTopY - math.max(#OGRILA_QUESTS, #SKYGUARD_QUESTS) * ROW_H - SEC_GAP
 
 -- Fix content height now that we know the full extent
 content:SetHeight(math.abs(curY) + START_PAD)
+
+local function applyColumnLayout(contentW)
+    local halfW = math.floor(contentW / 2)
+    local tColW = halfW - INDENT - 3
+    local colQW = halfW - INDENT - 3
+
+    for j, ref in ipairs(uiRefs.towers) do
+        local tx = (j == 1) and INDENT or (halfW + INDENT)
+        ref:ClearAllPoints()
+        ref:SetPoint("TOPLEFT", content, "TOPLEFT", tx, towersRowY)
+        ref:SetWidth(tColW)
+    end
+
+    uiRefs.ogrila.header:ClearAllPoints()
+    uiRefs.ogrila.header:SetPoint("TOPLEFT", content, "TOPLEFT", 0, ogrilaHeaderY)
+    uiRefs.ogrila.header:SetWidth(halfW - 3)
+
+    uiRefs.skyguard.header:ClearAllPoints()
+    uiRefs.skyguard.header:SetPoint("TOPLEFT", content, "TOPLEFT", halfW, ogrilaHeaderY)
+    uiRefs.skyguard.header:SetWidth(halfW - 3)
+
+    for j = 1, math.max(#OGRILA_QUESTS, #SKYGUARD_QUESTS) do
+        local rowY = twoColRowYs[j]
+        if uiRefs.ogrila[j] then
+            uiRefs.ogrila[j]:ClearAllPoints()
+            uiRefs.ogrila[j]:SetPoint("TOPLEFT", content, "TOPLEFT", INDENT, rowY)
+            uiRefs.ogrila[j]:SetWidth(colQW)
+        end
+        if uiRefs.skyguard[j] then
+            uiRefs.skyguard[j]:ClearAllPoints()
+            uiRefs.skyguard[j]:SetPoint("TOPLEFT", content, "TOPLEFT", halfW + INDENT, rowY)
+            uiRefs.skyguard[j]:SetWidth(colQW)
+        end
+    end
+end
+
+popup:SetScript("OnSizeChanged", function(self, w, h)
+    local cw = w - 20
+    content:SetWidth(cw)
+    applyColumnLayout(cw)
+end)
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Refresh
@@ -604,6 +674,14 @@ function addon.initUI()
     DailySync_Data.ui = DailySync_Data.ui or {}
     DailySync_Data.ui.mmData = DailySync_Data.ui.mmData or {}
     LibDBIcon:Register("DailySync", ldbObject, DailySync_Data.ui.mmData)
+
+    local w = DailySync_Data.ui.popupW
+    local h = DailySync_Data.ui.popupH
+    if w and h then
+        w = math.min(900, math.max(350, w))
+        h = math.min(800, math.max(200, h))
+        popup:SetSize(w, h)
+    end
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -1030,6 +1030,7 @@ end
 DS:RegisterEvent("ADDON_LOADED")
 DS:RegisterEvent("QUEST_ACCEPTED")
 DS:RegisterEvent("QUEST_DETAIL")
+DS:RegisterEvent("QUEST_TURNED_IN")
 DS:RegisterEvent("CHAT_MSG_ADDON")
 DS:RegisterEvent("CHAT_MSG_CHANNEL")
 DS:RegisterEvent("GROUP_JOINED")
@@ -1093,6 +1094,13 @@ DS:SetScript("OnEvent", function(self, event, ...)
                 storeQuest(qtype, questID, resetTime)
                 DS:broadcast(true, nil, nil, true)
             end
+        end
+
+    elseif event == "QUEST_TURNED_IN" then
+        -- Small delay so IsQuestFlaggedCompleted has settled, then check whether
+        -- this turn-in finished off the day's slate.
+        if addon.checkAllDailiesComplete then
+            C_Timer.After(0.3, addon.checkAllDailiesComplete)
         end
 
     elseif event == "CHAT_MSG_ADDON" then
@@ -1190,5 +1198,8 @@ SlashCmdList["DAILYSYNC"] = function(cmd)
         print("  /dsync offset N    - set daily-change offset in hours (0 = US, 7 = AEST)")
         print("  /dsync debug       - toggle debug output")
         print("  /dsync ping NAME   - check DailySync version of a player")
+        print("  /dsync celebrate   - preview the all-dailies-complete celebration")
+        print("  /dsync celebrate status - show current slot completion count")
+        print("  /dsync celebrate reset  - clear today's celebration guard")
     end
 end
